@@ -23,10 +23,21 @@ let widthStr = [
   5,3,5,9];
 
 
-g.setFontCustom(E.toString(fontStr), 32, E.toString(widthStr), 256 + 15); 
-//require("FontDylex7x13").add(Graphics);
-//g.setFont("Dylex7x13");                     
-//g.setFont("Calibri",1);
+//g.setFontCustom(E.toString(fontStr), 32, E.toString(widthStr), 256 + 15); 
+let h = require("heatshrink");
+let fx = btoa(h.compress(fontStr));
+let wx = btoa(h.compress(widthStr));
+let fcode = `
+let fnt = h.decompress(atob('${fx}'));
+let wths = h.decompress(atob('${wx}'));
+
+exports.add = function(graphics) {
+  graphics.prototype.setFontOmnigo = function() {
+    this.setFontCustom(E.toString(font), 32, E.toString(widths), 256 + 15);
+  }
+}
+`;
+console.log(fcode);
 
 /**/
 g.clear();
@@ -40,13 +51,13 @@ g.drawString("33 44 55 66 77 88", 4, 95);
 g.drawString("99 :: ;; << ==", 4, 110);
 //g.drawString("9876543210", 4, 110);
 */
-/**/
+/*
 g.drawString('>> ?? @@ AA BB',4,10);
 g.drawString("CC DD EE FF GG HH",4,35);
 g.drawString("II JJ KK LL MM NN",4,60);
 g.drawString("OO PP QQ RR SS TT", 4, 85);
 g.drawString("UU VV WW XX YY ZZ", 4, 110);
-/**/
+*/
 /*
 g.clear();
 g.drawString("[[ \\ ]] ^^ __ ``",4,10);
@@ -58,13 +69,14 @@ g.drawString("uu vv ww xx yy zz",4,110);
 /*
 g.drawString("THE QUICK BROWN FOX".toLowerCase(),4, 130);
 g.drawString(" JUMPS OVER A LAZY DOG".toLowerCase(),4, 145);
-/* * /
+ */
+
 let y = 2;
 ['It has come to my attention',
  'that the best thing in life for ',
  'any being is to help each other; ',
- "learn from each other in a way that's ",
- "cooperative, respectful and loving of ",
- "your fellow being"
+ "learn from each other in a way",
+ "that's cooperative, respectful ",
+ "and loving of your fellow being"
  ].forEach((s) => {g.drawString(s, 2, y);y+= 14;});
-*/
+
