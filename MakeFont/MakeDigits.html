@@ -1,0 +1,78 @@
+<html>
+    <head>
+        <style>
+            .overlay {
+                position: absolute;
+                left: 0;
+                top: 0;
+            }
+            .bordered {
+                border: 1px solid red;
+            }
+        </style>
+        <script>
+            const gebi = (id) => { return document.getElementById(id)};
+        </script>
+    </head>
+    <body>
+        <h2>Make Digits</h2>
+        <hr/>
+        <form>
+            <input id="imgSrc" type="file">
+            <br/>
+            <input size="60" value="10,10,10,10,10,10,10,10,10,10" name="foo" id="widths">
+        
+        <div id="container1" style="position: relative; border: 1px solid gray;">
+            <img id="imgDisp" class="overlay"/>
+            <canvas id="cnv" class="overlay bordered" width="100px" height="100px"></canvas>
+        </div>
+        
+        </form>
+        <button onClick='drawFrames()'>SOMETHING</button>
+        <script>
+         
+            function drawFrames() {
+                let w = gebi('widths').value.split(',');
+                
+                //console.log(w);
+                //alert(`w=${imgw} h=${imgh}`);
+                // go canvas
+                let ctx = gebi('cnv').getContext('2d');
+                ctx.clearRect(0,0,ctx.canvas.width,ctx.canvas.height);
+                ctx.strokeStyle = "#FF0000";
+                ctx.beginPath();
+                for(let x = 0, pos=0; x < w.length; x++) {
+                    pos += w[x]*1;
+                    ctx.moveTo(pos,0);
+                    ctx.lineTo(pos,ctx.canvas.height-1);
+                }
+                ctx.closePath();
+                ctx.stroke();
+            }
+            gebi('imgSrc').addEventListener('change', (evt) => {
+                let fp = gebi('imgSrc').value;
+                //alert(fp);
+                fp = fp.substr(fp.lastIndexOf("\\"));
+                //alert(fp);
+                gebi('imgDisp').src = fp;
+                resizeCanvas();
+            });
+            function resizeCanvas() {
+                let img = gebi('imgDisp');
+                let cnv = gebi('cnv');
+                cnv.width = img.naturalWidth;
+                cnv.height = img.naturalHeight;
+                console.log(`w=${cnv.width} h=${cnv.height}`);
+                //cnv.getContext('2d').clearRect(0,0,cnv.width,cnv.height);
+                gebi('container1').height = cnv.height;
+                alert(`ht=${img.naturalHeight} cht=${gebi('container1').height}`);
+            }
+            gebi('widths').addEventListener('input', (evt) => {
+                let ctx = gebi('cnv').getContext('2d');
+                ctx.clearRect(0,0,100,100);
+            });
+            
+        </script>
+
+    </body>
+</html>
