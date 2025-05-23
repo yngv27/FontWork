@@ -51,16 +51,21 @@ var ctx = c.getContext("2d");
 c.width = window.innerWidth;
 c.height = window.innerHeight;
 var imgURL = 'https://s3-us-west-2.amazonaws.com/s.cdpn.io/131045/colorful-triangles.jpg';
+//* Quicksand64
+imgURL = 'http://localhost:8000/Quick64.png';
+digitStart = [    0,    "31",    "45",    "74",    "100",    "129",    "158",    "187",    "217",    "244"]
+digitEnd = [    "32",    "47",    "74",    "101",    "129",    "158",    "188",    "218",    "245",    "274"]
+//*/
 /* Urbanist54
 imgURL = 'http://localhost:8000/Urbanist54.png';
 digitStart = [    0,    "31",    "45",    "74",    "100",    "129",    "158",    "187",    "217",    "244"]
 digitEnd = [    "32",    "47",    "74",    "101",    "129",    "158",    "188",    "218",    "245",    "274"]
 */
-//* Urbanist18
+/* Urbanist18
 imgURL = 'http://localhost:8000/Urbanist18.png';
 digitStart = [    0,    "11",    "16",    "25",    "34",    "43",    "53",    "62",    "72",    "81"]
 digitEnd = [    "11",    "16",    "25",    "34",    "43",    "53",    "63",    "72",    "82",    "91"]
-//*/
+*/
 loadImage(imgURL);
 
 window.addEventListener('paste', function(e){
