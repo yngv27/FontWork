@@ -1,0 +1,695 @@
+
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <title>PNG 1bpp Converter + Two-Step Width Measurer</title>
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <style>
+    :root {
+      --bg: #0f172a;
+      --panel: #111827;
+      --text: #e5e7eb;
+      --accent: #22c55e;
+      --accent-2: #60a5fa;
+      --danger: #ef4444;
+      --muted: #9ca3af;
+      --border: #1f2937;
+      --mono: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", "Courier New", monospace;
+    }
+    body {
+      background: var(--bg);
+      color: var(--text);
+      font-family: system-ui, -apple-system, Segoe UI, Roboto, sans-serif;
+      margin: 0;
+      padding: 2rem;
+      line-height: 1.5;
+    }
+    h1 { margin-top: 0; font-size: 1.5rem; }
+    .panel {
+      background: var(--panel);
+      border: 1px solid var(--border);
+      border-radius: 0.75rem;
+      padding: 1rem;
+    }
+    .row { display: flex; gap: 0.75rem; align-items: center; flex-wrap: wrap; }
+    label { color: var(--muted); font-size: 0.9rem; }
+    input[type="file"], input[type="range"], input[type="number"], input[type="text"], input[type="checkbox"], button {
+      background: #0b1020;
+      color: var(--text);
+      border: 1px solid var(--border);
+      border-radius: 0.5rem;
+      padding: 0.5rem 0.75rem;
+    }
+    input[type="checkbox"] { width: 1.1rem; height: 1.1rem; }
+    button { cursor: pointer; }
+    button.primary { background: #0b1f12; border-color: #153a24; color: var(--accent); font-weight: 600; }
+    button.warn { background: #1a0b0b; border-color: #3b1717; color: var(--danger); font-weight: 600; }
+    canvas {
+      background: #0b1020;
+      border: 1px solid var(--border);
+      border-radius: 0.5rem;
+      image-rendering: pixelated; /* crisp zoomed pixels */
+    }
+    .zoomShell {
+      background: #0b1020;
+      border: 1px solid var(--border);
+      border-radius: 0.5rem;
+      width: 100%;
+      height: 420px;
+      overflow: auto;
+      position: relative;
+    }
+    .mono { font-family: var(--mono); }
+    textarea {
+      width: 100%;
+      min-height: 120px;
+      resize: vertical;
+      background: #0b1020;
+      color: var(--text);
+      border: 1px solid var(--border);
+      border-radius: 0.5rem;
+      padding: 0.75rem;
+      font-family: var(--mono);
+      font-size: 0.9rem;
+      white-space: pre-wrap;
+      word-break: break-all;
+    }
+    .hint { color: var(--muted); font-size: 0.88rem; }
+    .tag {
+      display: inline-block;
+      padding: 0.15rem 0.45rem;
+      border-radius: 0.4rem;
+      border: 1px solid var(--border);
+      background: #0b1020;
+      font-size: 0.78rem;
+      color: var(--muted);
+      margin-left: 0.25rem;
+    }
+    #outputPanel[hidden] { display: none; }
+    .output-actions {
+      display: flex;
+      gap: 0.5rem;
+      align-items: center;
+      margin: 0.5rem 0 0.25rem 0;
+    }
+    .status { font-size: 0.85rem; color: var(--muted); }
+    .status.ok { color: var(--accent); }
+    .status.err { color: var(--danger); }
+    #coordsCaption {
+      font-family: var(--mono);
+      font-size: 0.9rem;
+      color: var(--accent-2);
+      margin-top: 0.25rem;
+    }
+  </style>
+</head>
+<body>
+  <h1>PNG Editor, 1bpp Converter &amp; Two-Step Width Measurer</h1>
+
+  <!-- Controls (top) -->
+  <div class="panel">
+    <div class="row">
+      <label for="file">1) Load PNG:</label>
+      <input id="file" type="file" accept="image/png" />
+      <span class="hint">Displays at 100% scale.</span>
+    </div>
+
+    <!-- Font name -->
+    <div class="row" style="margin-top:0.75rem;">
+      <label for="fontName">Font name:</label>
+      <input id="fontName" type="text" value="Myfont" />
+      <span class="hint">Defaults to "Myfont". Updates to the input file name (without extension) after loading.</span>
+    </div>
+
+    <!-- Start character -->
+    <div class="row" style="margin-top:0.75rem;">
+      <label for="startChar">Start character:</label>
+      <input id="startChar" type="number" min="0" max="255" value="32" />
+      <span class="hint">Defaults to 32 (space).</span>
+    </div>
+
+    <!-- Contrast slider -->
+    <div class="row" style="margin-top:0.75rem;">
+      <label for="threshold">Contrast:</label>
+      <input id="threshold" type="range" min="1" max="99" step="1" value="50" />
+      <span id="thresholdLabel" class="tag">50%</span>
+      <span class="hint">Binarizes non-painted pixels by avg(R,G,B). 1% → mostly background, 99% → mostly foreground.</span>
+    </div>
+  </div>
+
+  <!-- Original panel placed JUST BELOW Contrast slider -->
+  <div class="panel" style="margin-top:1rem;">
+    <h2 style="margin-top:0;">Original (100%) — B/W (Contrast)</h2>
+    <canvas id="origCanvas"></canvas>
+    <div class="hint" style="margin-top:0.5rem;">
+      Displays the thresholded version (pure black/white). Painted pixels remain pure black/white regardless of contrast.
+    </div>
+  </div>
+
+  <!-- Zoom slider + other controls (below Original) -->
+  <div class="panel" style="margin-top:1rem;">
+    <!-- Zoom -->
+    <div class="row">
+      <label for="zoom">Zoom:</label>
+      <input id="zoom" type="range" min="2" max="64" step="1" value="8" />
+      <span id="zoomLabel" class="tag">8×</span>
+      <span class="hint">Use scrollbars below to focus any area; click/drag to paint.</span>
+    </div>
+
+    <!-- Invert toggle -->
+    <div class="row" style="margin-top:0.75rem;">
+      <label for="invertToggle">Invert image:</label>
+      <input id="invertToggle" type="checkbox" />
+      <span class="hint">Toggles white ↔ black on the source image (affects contrast result).</span>
+    </div>
+
+    <!-- Canvas adjust -->
+    <div class="row" style="margin-top:0.75rem;">
+      <label>Canvas adjust at cursor:</label>
+      <button id="insertRow">Insert Row</button>
+      <button id="deleteRow" class="warn">Delete Row</button>
+      <span class="tag">height @ y</span>
+      <button id="insertCol">Insert Column</button>
+      <button id="deleteCol" class="warn">Delete Column</button>
+      <span class="tag">width @ x</span>
+    </div>
+  </div>
+
+  <!-- Zoomed panel (below Original and zoom controls) -->
+  <div class="panel" style="margin-top:1rem;">
+    <h2 style="margin-top:0;">Zoomed (click/drag to paint)</h2>
+    <!-- Cursor location label under the caption -->
+    <div id="coordsCaption">cursor: (x=?, y=?)</div>
+
+    <div id="zoomShell" class="zoomShell" style="margin-top:0.5rem;">
+      <canvas id="zoomCanvas"></canvas>
+    </div>
+
+    <!-- RESTORED: Show Base64 button stacked under the zoomed canvas -->
+    <div class="row" style="margin-top:0.75rem;">
+      <button id="showBase64" class="primary">Show Base64</button>
+      <span class="hint">Computes the combined output and reveals the panel below.</span>
+    </div>
+
+    <div class="hint" style="margin-top:0.5rem;">
+      Press and hold to paint. Paint color is set by the current black/white state at the first click (opposite of it).
+    </div>
+  </div>
+
+  <!-- Output panel moved BELOW the Zoomed panel -->
+  <div id="outputPanel" class="panel" style="margin-top:1rem;" hidden>
+    <h2 style="margin-top:0;">Combined Output</h2>
+
+    <div class="output-actions">
+      <button id="copyCombined">Copy to clipboard</button>
+      <span id="copyStatus" class="status"></span>
+    </div>
+
+    <textarea id="outCombined" placeholder='Graphics.prototype.setFontMyfont = function(scale) {&#10;  return(this.setFontCustom(atob("BITMAP"), START, atob("WIDTHS"), HEIGHT + (scale &lt;&lt; 8)));&#10;};'></textarea>
+
+    <div class="hint">
+      The combined output defines <code>Graphics.prototype.setFont&lt;FontName&gt;</code> and calls
+      <code>setFontCustom(atob(BITMAP), START, atob(WIDTHS), HEIGHT + (scale &lt;&lt; 8))</code>.
+    </div>
+  </div>
+
+  <script type="module">
+    // ===== Elements =====
+    const fileInput       = document.getElementById('file');
+    const fontNameInput   = document.getElementById('fontName');
+    const startCharInput  = document.getElementById('startChar');
+    const thresholdRange  = document.getElementById('threshold');
+    const thresholdLabel  = document.getElementById('thresholdLabel');
+    const zoomRange       = document.getElementById('zoom');
+    const zoomLabel       = document.getElementById('zoomLabel');
+    const origCanvas      = document.getElementById('origCanvas'); // DISPLAY canvas (thresholded)
+    const zoomCanvas      = document.getElementById('zoomCanvas'); // DISPLAY canvas (thresholded, scaled)
+    const insertRowBtn    = document.getElementById('insertRow');
+    const deleteRowBtn    = document.getElementById('deleteRow');
+    const insertColBtn    = document.getElementById('insertCol');
+    const deleteColBtn    = document.getElementById('deleteCol');
+    const showBase64Btn   = document.getElementById('showBase64'); // RESTORED button
+    const outputPanel     = document.getElementById('outputPanel');
+    const outCombined     = document.getElementById('outCombined');
+    const copyBtn         = document.getElementById('copyCombined');
+    const copyStatus      = document.getElementById('copyStatus');
+    const invertToggle    = document.getElementById('invertToggle');
+    const coordsCaption   = document.getElementById('coordsCaption');
+
+    const octx = origCanvas.getContext('2d', { willReadFrequently: true });
+    const zctx = zoomCanvas.getContext('2d', { willReadFrequently: true });
+    octx.imageSmoothingEnabled = false;
+    zctx.imageSmoothingEnabled = false;
+
+    // Offscreen source canvas holds the ORIGINAL/EDITED RGBA image.
+    const srcCanvas = document.createElement('canvas');
+    const sctx = srcCanvas.getContext('2d', { willReadFrequently: true });
+
+    // ===== State =====
+    let imgW = 0, imgH = 0;       // current working dimensions
+    let zoom = parseInt(zoomRange.value, 10);   // default 8
+    let thresholdPct = parseInt(thresholdRange.value, 10); // default 50
+    let cursorX = 0, cursorY = 0;
+
+    // Painting state
+    let isPainting = false;
+    let paintColor = 255; // set at mousedown (opposite of current thresholded pixel)
+
+    // ===== Utilities =====
+    const clamp = (v, min, max) => Math.max(min, Math.min(max, v));
+    const updateZoomLabel = () => zoomLabel.textContent = `${zoom}×`;
+    const updateThresholdLabel = () => thresholdLabel.textContent = `${thresholdPct}%`;
+    const updateCoordsCaption = () => coordsCaption.textContent = `cursor: (x=${imgW ? cursorX : "?"}, y=${imgH ? cursorY : "?"})`;
+    const thresholdToValue = (pct) => (pct / 100) * 255; // 1..99% → 2.55..252.45
+
+    const toBase64 = (u8) => {
+      let binary = '';
+      const chunkSize = 0x8000;
+      for (let i = 0; i < u8.length; i += chunkSize) {
+        binary += String.fromCharCode.apply(null, u8.subarray(i, i + chunkSize));
+      }
+      return btoa(binary);
+    };
+
+    function toValidIdentifier(name) {
+      let s = (name || 'Myfont').trim();
+      s = s.replace(/[^A-Za-z0-9_]+/g, '_');
+      if (/^[0-9]/.test(s)) s = '_' + s;
+      if (!s) s = 'Myfont';
+      return s;
+    }
+
+    // ===== Rendering: draw thresholded B/W to both display canvases =====
+    function renderViews() {
+      if (!imgW || !imgH) return;
+
+      // Source RGBA
+      const srcImg = sctx.getImageData(0, 0, imgW, imgH);
+      const src = srcImg.data;
+
+      // Thresholded output for Original canvas
+      const dispImg = octx.createImageData(imgW, imgH);
+      const dst = dispImg.data;
+      const T = thresholdToValue(thresholdPct);
+
+      for (let i = 0; i < src.length; i += 4) {
+        const r = src[i], g = src[i + 1], b = src[i + 2];
+        const avg = (r + g + b) / 3;
+        const v = (avg > T) ? 255 : 0; // binarize
+        dst[i]     = v;
+        dst[i + 1] = v;
+        dst[i + 2] = v;
+        dst[i + 3] = 255;
+      }
+
+      // Draw original-size (thresholded) view
+      origCanvas.width = imgW;
+      origCanvas.height = imgH;
+      octx.putImageData(dispImg, 0, 0);
+
+      // Draw zoomed (thresholded) view by scaling the thresholded original canvas
+      zoomCanvas.width = imgW * zoom;
+      zoomCanvas.height = imgH * zoom;
+      zctx.clearRect(0, 0, zoomCanvas.width, zoomCanvas.height);
+      zctx.save();
+      zctx.imageSmoothingEnabled = false;
+      zctx.scale(zoom, zoom);
+      zctx.drawImage(origCanvas, 0, 0);
+      zctx.restore();
+
+      // Optional grid for zoom >= 8
+      if (zoom >= 8) {
+        zctx.save();
+        zctx.strokeStyle = 'rgba(255,255,255,0.06)';
+        zctx.lineWidth = 1;
+        for (let x = 0; x <= imgW; x++) {
+          zctx.beginPath();
+          zctx.moveTo(x * zoom + 0.5, 0);
+          zctx.lineTo(x * zoom + 0.5, imgH * zoom);
+          zctx.stroke();
+        }
+        for (let y = 0; y <= imgH; y++) {
+          zctx.beginPath();
+          zctx.moveTo(0, y * zoom + 0.5);
+          zctx.lineTo(imgW * zoom, y * zoom + 0.5);
+          zctx.stroke();
+        }
+        zctx.restore();
+      }
+
+      // Draw crosshair on the zoom canvas at current cursor pixel
+      if (imgW && imgH) {
+        zctx.save();
+        zctx.strokeStyle = '#60a5fa';
+        zctx.lineWidth = 1;
+        zctx.strokeRect(cursorX * zoom + 0.5, cursorY * zoom + 0.5, zoom - 1, zoom - 1);
+        zctx.restore();
+      }
+
+      // Update cursor caption under the Zoomed title
+      updateCoordsCaption();
+    }
+
+    // Sample avg from source (not thresholded)
+    function getPixelAvgFromSource(px, py) {
+      const d = sctx.getImageData(px, py, 1, 1).data;
+      return (d[0] + d[1] + d[2]) / 3;
+    }
+
+    // Paint pure black/white into source (unaffected by contrast)
+    function paintPixel(px, py) {
+      if (!imgW || !imgH) return;
+      const pixel = sctx.createImageData(1, 1);
+      pixel.data[0] = paintColor;
+      pixel.data[1] = paintColor;
+      pixel.data[2] = paintColor;
+      pixel.data[3] = 255;
+      sctx.putImageData(pixel, px, py);
+      renderViews();
+    }
+
+    // Get coords in source space from zoom canvas event
+    function getZoomCoords(e) {
+      const rect = zoomCanvas.getBoundingClientRect();
+      const x = clamp(Math.floor((e.clientX - rect.left) / zoom), 0, imgW - 1);
+      const y = clamp(Math.floor((e.clientY - rect.top) / zoom), 0, imgH - 1);
+      return { x, y };
+    }
+
+    // ===== Load PNG into source canvas (keep original in memory) =====
+    function fileBaseName(name) {
+      if (!name) return 'Myfont';
+      const trimmed = name.trim();
+      const lastDot = trimmed.lastIndexOf('.');
+      return lastDot > 0 ? trimmed.slice(0, lastDot) : trimmed;
+    }
+
+    function loadPNG(file) {
+      const reader = new FileReader();
+      reader.onload = (e) => {
+        const img = new Image();
+        img.onload = () => {
+          imgW = img.width;
+          imgH = img.height;
+
+          srcCanvas.width = imgW;
+          srcCanvas.height = imgH;
+          sctx.clearRect(0, 0, imgW, imgH);
+          sctx.drawImage(img, 0, 0);
+
+          cursorX = 0; cursorY = 0;
+          renderViews();
+
+          // Set font name to input file base name
+          fontNameInput.value = fileBaseName(file.name);
+        };
+        img.src = e.target.result;
+      };
+      reader.readAsDataURL(file);
+    }
+
+    // ===== Insert/Delete affect SOURCE canvas =====
+    function insertRowAt(y) {
+      if (!imgW || !imgH) return;
+      y = clamp(y, 0, imgH);
+      const tmp = document.createElement('canvas');
+      tmp.width = imgW; tmp.height = imgH + 1;
+      const tctx = tmp.getContext('2d');
+
+      if (y > 0) tctx.drawImage(srcCanvas, 0, 0, imgW, y, 0, 0, imgW, y);
+      tctx.fillStyle = '#ffffff'; tctx.fillRect(0, y, imgW, 1);
+      if (imgH - y > 0) tctx.drawImage(srcCanvas, 0, y, imgW, imgH - y, 0, y + 1, imgW, imgH - y);
+
+      imgH += 1;
+      srcCanvas.width = imgW; srcCanvas.height = imgH;
+      sctx.drawImage(tmp, 0, 0);
+      renderViews();
+    }
+
+    function deleteRowAt(y) {
+      if (!imgW || imgH <= 1) return;
+      y = clamp(y, 0, imgH - 1);
+      const tmp = document.createElement('canvas');
+      tmp.width = imgW; tmp.height = imgH - 1;
+      const tctx = tmp.getContext('2d');
+
+      if (y > 0) tctx.drawImage(srcCanvas, 0, 0, imgW, y, 0, 0, imgW, y);
+      if (imgH - (y + 1) > 0) tctx.drawImage(srcCanvas, 0, y + 1, imgW, imgH - (y + 1), 0, y, imgW, imgH - (y + 1));
+
+      imgH -= 1;
+      srcCanvas.width = imgW; srcCanvas.height = imgH;
+      sctx.drawImage(tmp, 0, 0);
+      cursorY = clamp(cursorY, 0, imgH - 1);
+      renderViews();
+    }
+
+    function insertColumnAt(x) {
+      if (!imgW || !imgH) return;
+      x = clamp(x, 0, imgW);
+      const tmp = document.createElement('canvas');
+      tmp.width = imgW + 1; tmp.height = imgH;
+      const tctx = tmp.getContext('2d');
+
+      if (x > 0) tctx.drawImage(srcCanvas, 0, 0, x, imgH, 0, 0, x, imgH);
+      tctx.fillStyle = '#ffffff'; tctx.fillRect(x, 0, 1, imgH);
+      if (imgW - x > 0) tctx.drawImage(srcCanvas, x, 0, imgW - x, imgH, x + 1, 0, imgW - x, imgH);
+
+      imgW += 1;
+      srcCanvas.width = imgW; srcCanvas.height = imgH;
+      sctx.drawImage(tmp, 0, 0);
+      cursorX = clamp(cursorX, 0, imgW - 1);
+      renderViews();
+    }
+
+    function deleteColumnAt(x) {
+      if (!imgW || imgW <= 1) return;
+      x = clamp(x, 0, imgW - 1);
+      const tmp = document.createElement('canvas');
+      tmp.width = imgW - 1; tmp.height = imgH;
+      const tctx = tmp.getContext('2d');
+
+      if (x > 0) tctx.drawImage(srcCanvas, 0, 0, x, imgH, 0, 0, x, imgH);
+      if (imgW - (x + 1) > 0) tctx.drawImage(srcCanvas, x + 1, 0, imgW - (x + 1), imgH, x, 0, imgW - (x + 1), imgH);
+
+      imgW -= 1;
+      srcCanvas.width = imgW; srcCanvas.height = imgH;
+      sctx.drawImage(tmp, 0, 0);
+      cursorX = clamp(cursorX, 0, imgW - 1);
+      renderViews();
+    }
+
+    // ===== Invert SOURCE image =====
+    function invertImage() {
+      if (!imgW || !imgH) return;
+      const imgData = sctx.getImageData(0, 0, imgW, imgH);
+      const d = imgData.data;
+      for (let i = 0; i < d.length; i += 4) {
+        d[i]     = 255 - d[i];
+        d[i + 1] = 255 - d[i + 1];
+        d[i + 2] = 255 - d[i + 2];
+      }
+      sctx.putImageData(imgData, 0, 0);
+      renderViews();
+    }
+
+    // ===== 1) Convert SOURCE to 1bpp column-major using current contrast =====
+    function convertToBase64ColumnMajor() {
+      if (!imgW || !imgH) return "";
+      const data = sctx.getImageData(0, 0, imgW, imgH).data;
+      const T = thresholdToValue(thresholdPct);
+
+      const totalBits = imgW * imgH;
+      const totalBytes = Math.ceil(totalBits / 8);
+      const bytes = new Uint8Array(totalBytes);
+
+      let bitIndex = 0;
+      for (let x = 0; x < imgW; x++) {
+        for (let y = 0; y < imgH; y++) {
+          const idx = (y * imgW + x) * 4;
+          const avg = (data[idx] + data[idx + 1] + data[idx + 2]) / 3;
+          const isWhite = (avg > T) ? 1 : 0; // threshold-based
+          const bytePos = bitIndex >> 3;
+          const bitPosInByte = 7 - (bitIndex & 7);
+          if (isWhite) bytes[bytePos] |= (1 << bitPosInByte);
+          bitIndex++;
+        }
+      }
+      return toBase64(bytes);
+    }
+
+    // ===== 2) Two-Step Width Measurer (based on current contrast) =====
+    function measureGlyphWidthsTwoStepToBase64() {
+      if (!imgW || !imgH) return "";
+      const data = sctx.getImageData(0, 0, imgW, imgH).data;
+      const T = thresholdToValue(thresholdPct);
+
+      // Background bit from bottom pixel of first column
+      const bgIdx = ((imgH - 1) * imgW + 0) * 4;
+      const bgWhite = ((data[bgIdx] + data[bgIdx + 1] + data[bgIdx + 2]) / 3) > T;
+      const bgBit = bgWhite ? 1 : 0;
+
+      // Classify columns
+      const colTypes = new Array(imgW);
+      for (let x = 0; x < imgW; x++) {
+        let hasBG = false, hasFG = false;
+        for (let y = 0; y < imgH; y++) {
+          const idx = (y * imgW + x) * 4;
+          const isWhite = ((data[idx] + data[idx + 1] + data[idx + 2]) / 3) > T ? 1 : 0;
+          if (isWhite === bgBit) hasBG = true; else hasFG = true;
+          if (hasBG && hasFG) break;
+        }
+        if (hasBG && hasFG) colTypes[x] = 'mixed';
+        else if (hasFG)     colTypes[x] = 'fg';
+        else                colTypes[x] = 'bg';
+      }
+
+      const widths = [];
+
+      // Leading blank: ONLY bg-only columns before first mixed
+      let x = 0;
+      while (x < imgW && colTypes[x] === 'bg') x++;
+      widths.push(Math.min(255, x));
+
+      // If no mixed columns → single width = image width
+      let anyMixed = false;
+      for (let i = x; i < imgW; i++) {
+        if (colTypes[i] === 'mixed') { anyMixed = true; break; }
+      }
+      if (!anyMixed) {
+        return toBase64(new Uint8Array([Math.min(255, imgW)]));
+      }
+
+      // Two-step widths
+      while (x < imgW) {
+        if (colTypes[x] !== 'mixed') { x++; continue; }
+        const start = x;
+
+        // A: until first BG-only column (exclusive)
+        while (x < imgW && colTypes[x] !== 'bg') x++;
+        const afterContent = x;
+        const A = afterContent - start;
+
+        // B: until next MIXED column (exclusive)
+        while (x < imgW && colTypes[x] !== 'mixed') x++;
+        const nextMixed = x;
+        const B = nextMixed - afterContent;
+
+        widths.push(Math.min(255, A + B));
+      }
+
+      return toBase64(new Uint8Array(widths));
+    }
+
+    // ===== Events =====
+    fileInput.addEventListener('change', (e) => {
+      const f = e.target.files?.[0];
+      if (f) loadPNG(f);
+    });
+
+    thresholdRange.addEventListener('input', (e) => {
+      thresholdPct = parseInt(e.target.value, 10);
+      updateThresholdLabel();
+      renderViews();
+    });
+
+    zoomRange.addEventListener('input', (e) => {
+      zoom = parseInt(e.target.value, 10);
+      updateZoomLabel();
+      renderViews();
+    });
+
+    invertToggle.addEventListener('change', () => invertImage());
+
+    // Painting via zoomCanvas
+    zoomCanvas.addEventListener('mousedown', (e) => {
+      if (!imgW || !imgH) return;
+      const { x, y } = getZoomCoords(e);
+      cursorX = x; cursorY = y; updateCoordsCaption();
+
+      // Determine current thresholded state at (x,y) → paint opposite
+      const avg = getPixelAvgFromSource(x, y);
+      const isWhiteNow = avg > thresholdToValue(thresholdPct);
+      paintColor = isWhiteNow ? 0 : 255;
+
+      isPainting = true;
+      paintPixel(x, y);
+    });
+
+    zoomCanvas.addEventListener('mousemove', (e) => {
+      if (!imgW || !imgH) return;
+      const { x, y } = getZoomCoords(e);
+      cursorX = x; cursorY = y; updateCoordsCaption();
+      if (isPainting) {
+        paintPixel(x, y);
+      } else {
+        renderViews(); // refresh view and crosshair
+      }
+    });
+
+    window.addEventListener('mouseup', () => { isPainting = false; });
+    zoomCanvas.addEventListener('mouseleave', () => { isPainting = false; });
+
+    // Insert/Delete at cursor
+    insertRowBtn.addEventListener('click', () => insertRowAt(cursorY));
+    deleteRowBtn.addEventListener('click', () => deleteRowAt(cursorY));
+    insertColBtn.addEventListener('click', () => insertColumnAt(cursorX));
+    deleteColBtn.addEventListener('click', () => deleteColumnAt(cursorX));
+
+    // Show combined output on demand (button under Zoomed canvas)
+    showBase64Btn.addEventListener('click', () => {
+      const BITMAP = convertToBase64ColumnMajor();
+      const WIDTHS = measureGlyphWidthsTwoStepToBase64();
+      const START  = clamp(parseInt(startCharInput.value, 10) || 32, 0, 255);
+      const HEIGHT = imgH;
+
+      const rawName  = fontNameInput.value;
+      const FONTNAME = toValidIdentifier(rawName);
+
+      const combined =
+`Graphics.prototype.setFont${FONTNAME} = function(scale) {
+  return(this.setFontCustom(atob("${BITMAP}"), ${START}, atob("${WIDTHS}"), ${HEIGHT} + (scale << 8)));
+};`;
+
+      outCombined.value = combined;
+      outputPanel.hidden = false;
+      copyStatus.textContent = ""; // clear status
+      copyStatus.className = "status";
+    });
+
+    // Copy to clipboard
+    copyBtn.addEventListener('click', async () => {
+      const text = outCombined.value.trim();
+      if (!text) {
+        copyStatus.textContent = "Nothing to copy.";
+        copyStatus.className = "status err";
+        return;
+      }
+      try {
+        await navigator.clipboard.writeText(text);
+        copyStatus.textContent = "Copied!";
+        copyStatus.className = "status ok";
+      } catch (err) {
+        // Fallback for older environments
+        try {
+          const ta = outCombined;
+          ta.select();
+          ta.setSelectionRange(0, ta.value.length);
+          const ok = document.execCommand('copy');
+          copyStatus.textContent = ok ? "Copied!" : "Copy failed.";
+          copyStatus.className = ok ? "status ok" : "status err";
+        } catch (e2) {
+          copyStatus.textContent = "Copy failed.";
+          copyStatus.className = "status err";
+        }
+      }
+    });
+
+    // Initial UI labels
+    updateZoomLabel();
+    updateThresholdLabel();
+    updateCoordsCaption();
+  </script>
+</body>
+</html>
+
